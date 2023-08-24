@@ -30,7 +30,7 @@ sudo /datasync.sh -l eastus -r aws-datasync-rg -v datasync-vm
 
 ## Deployment Steps
 
-The deployment script automates several intricate steps to ensure a smooth integration between AWS DataSync and Azure services. Here's a breakdown of the deployment process:
+The deployment script automates several steps to ensure a smooth integration between AWS DataSync and Azure services. Here's a breakdown of the deployment process:
 
 1. *Provide Configuration Parameters:*
    Before executing the script, open it in your preferred editor and provide the necessary configuration parameters. These parameters will be used to customize the deployment according to your requirements.
@@ -39,7 +39,7 @@ The deployment script automates several intricate steps to ensure a smooth integ
    As a part of the setup process, the script will automatically download and install the Azure Command-Line Interface (CLI) and AzCopy tools. These tools are essential for managing and transferring data within the Azure environment.
 
 3. *Download AWS DataSync Agent for Hyper-V:*
-   The script will fetch the AWS DataSync Agent specifically designed for Hyper-V environments. This agent enables efficient and secure data transfers between your on-premises infrastructure and Azure.
+   The script will download the AWS DataSync Agent specifically designed for Hyper-V environments. This agent enables efficient and secure data transfers between your Azure infrastructure and AWS.
 
 4. *Convert VHDX to VHD:*
    Once the AWS DataSync Agent is downloaded, the script will take care of converting the Virtual Hard Disk (VHDX) file to the compatible Hyper-V Disk (HVD) format, ensuring compatibility with Azure.
