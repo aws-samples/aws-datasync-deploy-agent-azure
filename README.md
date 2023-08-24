@@ -1,6 +1,6 @@
 # AWS DataSync Deployment for Azure
 
-This repository contains a script designed to facilitate the deployment of the AWS DataSync Agent on Amazon Linux 2 (AL2), enabling data synchronization and integration with Azure services.
+This repository contains a script designed to convert the DataSync Agent VHDX to VHD  on Amazon Linux 2 (AL2), and upload the generated disk to Azure and create an Azure Virtual Machine.
 
 ## Getting Started
 
