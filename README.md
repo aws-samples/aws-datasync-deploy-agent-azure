@@ -24,8 +24,7 @@ This script has been developed to run on an Amazon Linux 2 AMI
 
 Once you have your parameters ready, you can initiate the deployment script using the following command:
 
-bash
-sudo /datasync.sh -l eastus -r aws-datasync-rg -v datasync-vm
+sudo bash datasync.sh -l eastus -r aws-datasync-rg -v datasync-vm
 
 
 ## Deployment Steps
