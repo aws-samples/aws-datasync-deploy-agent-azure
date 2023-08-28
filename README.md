@@ -16,7 +16,7 @@ Before running the deployment script, please ensure that you have the following 
 
 ---
 
-This script has been developed to run on an Amazon Linux 2 AMI
+This script has been developed to run on an Amazon Linux 2 AMI and the EC2 instance should have at least 160GB of disk space for the conversion process
 
 ![Amazon EC2 Launch Instance](./docs/datasync.png)
 
