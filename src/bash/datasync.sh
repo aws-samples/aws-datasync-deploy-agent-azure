@@ -45,16 +45,17 @@ gpgkey=https://packages.microsoft.com/keys/microsoft.asc" | tee /etc/yum.repos.d
     yum -y -q install qemu-img jq unzip azure-cli
     curl -Ls https://aka.ms/downloadazcopy-$AZCOPY_VERSION-linux -o /tmp/azcopy.tar.gz
     tar xzf /tmp/azcopy.tar.gz --directory /tmp
-    cp /tmp/azcopy_linux_amd64*/azcopy /usr/local/bin/azcopy
-    chmod +x /usr/local/bin/azcopy
+    cp /tmp/azcopy_linux_amd64*/azcopy /usr/bin/azcopy
+    chmod +x /usr/bin/azcopy
 }
 
 function download_datasync(){
-    echo "Downloading datasync agent for Hyper-V"
+    echo -e "\033[0;33mDownloading datasync agent for Hyper-V\033[0;33m"
     curl -s https://d8vjazrbkazun.cloudfront.net/AWS-DataSync-Agent-HyperV.zip -o /tmp/datasync.zip
 }
 
 function convert_datasync(){
+    echo -e "\033[0;33mConverting datasync to vhd\033[0;33m"
     unzip /tmp/datasync.zip -d /tmp
     vhdxdisk=$(find aws-*)
     rawdisk=$(echo $vhdxdisk | sed 's/vhdx/raw/')
@@ -82,6 +83,7 @@ function check_resource_group(){
 }
 
 function upload_to_azure(){
+    echo -e "\033[0;33mUploading to Azure\033[0;33m"
     az login --use-device-code
     check_resource_group
     az disk create -n $disk_name -g $resource_group -l $location --os-type Linux --upload-type Upload --upload-size-bytes $upload_size --sku standard_lrs --output none --only-show-errors
@@ -91,6 +93,7 @@ function upload_to_azure(){
 }
 
 function create_azure_vm(){
+    echo -e "\033[0;33mCreating Azure Virtual Machine for DataSync\033[0;33m"
     az vm create -g $resource_group -l $location --name $vm_name --size Standard_E4as_v4 --os-type linux --attach-os-disk $disk_name --public-ip-address "" --only-show-errors
 }
 
