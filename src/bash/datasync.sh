@@ -4,15 +4,23 @@
 
 set -e
 
-while getopts ":l:r:v:" opt; do
+while getopts ":d:l:r:v:g:n:s:" opt; do
   case $opt in
+    d) deployment_type="$OPTARG"
+    ;;
     l) location="$OPTARG"
     ;;
     r) resource_group="$OPTARG"
     ;;
     v) vm_name="$OPTARG"
     ;;
-    \?) echo "Invalid option -$OPTARG" >&3
+    g) vnet_rg="$OPTARG"
+    ;;
+    n) vnet_name="$OPTARG"
+    ;;
+    s) subnet_name="$OPTARG"
+    ;;
+    \?) echo "Invalid option -$OPTARG" >&2
     exit 1
     ;;
   esac
@@ -24,10 +32,32 @@ while getopts ":l:r:v:" opt; do
   esac
 done
 
-if [ $# -ne 6 ]; then
-    echo "Missing -l or -r or -v"
+shift $((OPTIND -1))
+
+# Check if deployment type is "new_vnet" or "existing_vnet"
+if [ "$deployment_type" != "new_vnet" ] && [ "$deployment_type" != "existing_vnet" ]; then
+    echo "Invalid value for deployment type (-d): $deployment_type. Deployment type must be 'new_vnet' or 'existing_vnet'."
     exit 1
 fi
+
+# Mandatory parameters deployment_type, location, resource_group and vm_name
+if [ -z "$deployment_type" ] || [ -z "$location" ] || [ -z "$resource_group" ] || [ -z "$vm_name" ]; then
+    echo "Required parameters are missing. Usage: -d [new_vnet|existing_vnet] -l [location] -r [resource_group] -v [vm_name] [-g [vnet_rg]] [-n [vnet_name]] [-s [subnet_name]]"
+    exit 1
+fi
+
+
+
+# Check if deployment_type is existing_vnet, then vnet_rg, vnet_name, and subnet_name are mandatory
+if [ "$deployment_type" == "existing_vnet" ] && { [ -z "$vnet_rg" ] || [ -z "$vnet_name" ] || [ -z "$subnet_name" ]; }; then
+    echo "-g [vnet_rg] -n [vnet_name] -s [subnet_name] are mandatory when deployment_type [-d] is 'existing_vnet'."
+    exit 1
+fi
+
+#if [ $# -ne 12 ]; then
+#    echo "Missing -l or -r or -v or -g or -n or -s"
+#    exit 1
+#fi
 
 
 # Exiting if not running on X86_64 architecture
@@ -43,9 +73,13 @@ if [ ! -w "/tmp" ]; then
   exit 1
 fi
 
+echo -e "\033[0;33mArgument deployment type is $deployment_type\033[0m"
 echo -e "\033[0;33mArgument location is $location\033[0m"
-echo -e "\033[0;33mArgument resource_group is $resource_group\033[0m"
-echo -e "\033[0;33mArgument vm_name is $vm_name\033[0m"
+echo -e "\033[0;33mArgument vm resource group is $resource_group\033[0m"
+echo -e "\033[0;33mArgument vm name is $vm_name\033[0m"
+echo -e "\033[0;33mArgument vnet resource group is $vnet_rg\033[0m"
+echo -e "\033[0;33mArgument vnet name is $vnet_name\033[0m"
+echo -e "\033[0;33mArgument subnet name is $subnet_name\033[0m"
 
 AZCOPY_VERSION=v10
 
@@ -57,11 +91,11 @@ enabled=1
 gpgcheck=1
 gpgkey=https://packages.microsoft.com/keys/microsoft.asc" | tee /etc/yum.repos.d/azure-cli.repo > /dev/null
     yum -y -q install qemu-img jq unzip azure-cli && yum -y clean all && rm -rf /var/cache
-    echo "\033[0;33mWarning azcopy will be downloaded from Internet but there is no integrity hash available.\033[0;33m" 
+    echo "\033[0;33mWarning azcopy will be downloaded from Internet but there is no integrity hash available.\033[0;33m"
     curl -Ls "https://aka.ms/downloadazcopy-$AZCOPY_VERSION-linux" -o /tmp/azcopy.tar.gz
     tar xzf /tmp/azcopy.tar.gz --directory /tmp || { echo "AzCopy download or extraction failed"; exit 1; }
-    cp /tmp/azcopy_linux_amd64*/azcopy /usr/local/sbin/azcopy
-    chmod +x /usr/local/sbin/azcopy
+    cp /tmp/azcopy_linux_amd64*/azcopy /usr/bin/azcopy
+    chmod +x /usr/bin/azcopy
 }
 
 function download_datasync(){
@@ -110,15 +144,20 @@ function upload_to_azure(){
 }
 
 function create_azure_vm(){
-    echo -e "\033[0;33mCreating Azure Virtual Machine for DataSync\033[0;33m"
+    echo -e "\033[0;33mCreating Azure Virtual Machine for DataSync with a new vnet\033[0;33m"
     az vm create -g "$resource_group" -l "$location" --name "$vm_name" --size Standard_E4as_v4 --os-type linux --attach-os-disk "$disk_name" --public-ip-address "" --only-show-errors || { echo "An error occured while creating the Azure VM"; exit 1; }
+}
+
+function create_azure_vm_existing_vnet(){
+    echo -e "\033[0;33mCreating Azure Virtual Machine for DataSync with an existing vnet\033[0;33m"
+    az vm create -g "$resource_group" -l "$location" --name "$vm_name" --size Standard_E4as_v4 --os-type linux --attach-os-disk "$disk_name" --subnet "$(az network vnet subnet show --resource-group $vnet_rg --vnet-name $vnet_name --name $subnet_name -o tsv --query id)" --public-ip-address "" --only-show-errors || { echo "An error occured while creating the Azure VM"; exit 1; }
 }
 
 function cleanup(){
     rm -f /tmp/datasync.zip
     rm -rf /tmp/aws-datasync-*
     rm -rf /tmp/azcopy*
-    az logout
+    az logout || true
     echo -e "\033[0m"
 }
 
@@ -128,6 +167,13 @@ download_and_install_dependencies
 download_datasync
 convert_datasync
 upload_to_azure
-create_azure_vm
-cleanup
 popd
+
+if [ "$deployment_type" == "new_vnet" ]; then
+    echo "Deployment type is new_vnet"
+    create_azure_vm
+elif [ "$deployment_type" == "existing_vnet" ]; then
+    echo "Deployment type is existing_vnet"
+    create_azure_vm_existing_vnet
+fi
+cleanup
