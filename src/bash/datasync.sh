@@ -145,7 +145,7 @@ function upload_to_azure(){
 
 function create_azure_vm(){
     echo -e "\033[0;33mCreating Azure Virtual Machine for DataSync with a new vnet\033[0;33m"
-    az vm create -g "$resource_group" -l "$location" --name "$vm_name" --size Standard_E4as_v4 --os-type linux --attach-os-disk "$disk_name" --public-ip-address "" --only-show-errors || { echo "An error occured while creating the Azure VM"; exit 1; }
+    az vm create -g "$resource_group" -l "$location" --name "$vm_name" --size Standard_E4as_v5 --os-type linux --attach-os-disk "$disk_name" --public-ip-address "" --only-show-errors || { echo "An error occured while creating the Azure VM"; exit 1; }
 }
 
 function create_azure_vm_existing_vnet(){
