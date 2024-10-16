@@ -10,7 +10,7 @@ To begin the deployment process, ensure that you have the necessary prerequisite
 
 Before running the deployment script, please ensure that you have the following parameters readily available:
 
-** This script has been developed to run on an Amazon Linux 2 AMI and the EC2 instance should have at least 160GB of disk space for the conversion process.**
+This script has been developed to run on an Amazon Linux 2 AMI and the EC2 instance should have at least 160GB of disk space for the conversion process.**
 
 Parameters:
 
@@ -27,7 +27,7 @@ Parameters:
 
 ---
 
-This script has been developed to run on an Amazon Linux 2 AMI and the EC2 instance should have at least 160GB of disk space for the conversion process
+> This script has been developed to run on an Amazon Linux 2 AMI and the EC2 instance should have at least 160GB of disk space for the conversion process
 
 ![Amazon EC2 Launch Instance](./docs/datasync.png)
 
