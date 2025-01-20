@@ -116,7 +116,7 @@ The script includes logging with color-coded output:
 
 ## Clean Up
 
-Once the deployment script has successfully executed and the AWS DataSync Agent is seamlessly integrated with Azure, you can consider cleaning up your environment:
+Once the deployment script has successfully executed and the AWS DataSync Agent is deployed on Azure, you can clean up your environment:
 
 1. Delete Amazon Linux EC2 Instance: The Amazon Linux EC2 instance that was used for the deployment can be safely deleted. The script will have completed its tasks, and the instance is no longer required for the ongoing operation of the integration.
 
