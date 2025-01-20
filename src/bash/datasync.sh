@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to convert HyperV datasync image to Azure
+# Script to download the AWS DataSync agent for Hyper-V, convert it to a VHD format, and deploy it on an Azure VM
 # Runs on Amazon Linux 2 x86_64 only
 
 set -euo pipefail
