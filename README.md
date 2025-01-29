@@ -106,6 +106,15 @@ You will be prompted to login to Azure and allow the script to create the Virtua
 
 ![Deployment Successful](./docs/DataSync-VM.png)
 
+## Login Credentials
+After the successful deployment of the AWS DataSync agent on the Azure Virtual Machine, you can access the agent using the following default login credentials:
+
+Username: admin   
+Password: password
+
+Be sure to use these credentials to log into the DataSync agent and continue the setup and configuration.
+
+
 ### Logging
 The script includes logging with color-coded output:
 
