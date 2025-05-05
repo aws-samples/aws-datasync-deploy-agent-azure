@@ -15,20 +15,19 @@ For information on moving data from Azure Files SMB shares to AWS using AWS Data
 
 To start the deployment, make sure you have met all the necessary prerequisites and are familiar with the configuration parameters needed for successful execution.
 
-It's recommended to log in to your Azure account before running the script. During the script execution, you'll be prompted to enter the authorization code provided in the Azure console to grant the script access to your Azure resources.
+**It is recommended to log in to your Azure account before running the script.** During the script execution, you'll be prompted to enter the authorization code provided in the Azure console to grant the script access to your Azure resources.
 
 ## Deployment Steps
 
-The deployment script automates several steps to ensure a smooth integration between AWS DataSync and Azure services. Here's a breakdown of the deployment process:
+The deployment script automates the following steps to integrate AWS DataSync with Azure:
 
-1. Provide Configuration Parameters: Before executing the script, open it in your preferred editor and provide the necessary configuration parameters. These parameters will be used to customize the deployment according to your requirements.
-2. Install Azure CLI and AzCopy: As a part of the setup process, the script will **automatically** download and install the Azure Command-Line Interface (CLI) and AzCopy tools. These tools are essential for managing and transferring data within the Azure environment.
-3. Download AWS DataSync Agent for Hyper-V: The script will download the AWS DataSync Agent specifically designed for Hyper-V environment.
-4. Convert VHDX to VHD: Once the AWS DataSync Agent is downloaded, the script will take care of converting the Virtual Hard Disk (VHDX) file to the compatible Hyper-V Disk (HVD) format for Azure
-5. Azure Authentication: To access and manage your Azure resources, the script will guide you through the authentication process, ensuring secure access to your Azure account.
-6. Create Resource Group: The deployment script will automatically create or use an existing Azure Resource Group. This Resource Group will serve as the container for your deployed resources.
-7. Upload VHD as Managed Disk: The script will upload the converted VHD file as a managed disk within the specified Resource Group. This disk will contain the AWS DataSync Agent.
-8. Create Virtual Machine: Leveraging the uploaded managed disk, the script will create an Azure Virtual Machine in either a new VNET or an existing VNET and subnet. 
+1. **Provide Configuration Parameters**: Customize the deployment by specifying required parameters such as deployment type, location, resource group, and VM details.
+2. **Install Dependencies**: Automatically installs Azure CLI, AzCopy, and other required tools.
+3. **Download and Convert DataSync Agent**: Downloads the AWS DataSync agent and converts it to a VHD format compatible with Azure.
+4. **Authenticate with Azure**: Guides you through logging into Azure to manage resources securely and validates the provided Subscription ID (if specified).
+5. **Create or Use Resource Group**: Ensures the specified Azure resource group exists or creates it if necessary.
+6. **Upload VHD to Azure**: Renames the VHD file to match the Azure VM name and uploads it as a managed disk in Azure.
+7. **Create Azure VM**: Deploys an Azure Virtual Machine using the uploaded VHD, supporting both new and existing VNET configurations.
 
 ### Prerequisites
 
@@ -51,6 +50,9 @@ Before running the deployment script, please ensure that you have the following 
 - **Virtual Machine Name (-v)**: The  name for the Azure Virtual Machine that will host the AWS DataSync Agent (e.g. aws-datasync-vm)
 - **Virtual Machine Size (-z)**: Azure VM size (e.g., 'Standard_E4s_v3', 'Standard_E16_v5')
 
+**Optional Parameter:**
+- **Subscription ID (-u)**: Azure subscription ID (optional)
+
 **Additional Parameters (when -d is existing_vnet):**
 - **VNET Resource Group (-g)**: Virtual network resource group (required for 'existing_vnet')
 - **VNET Name (-n)**: Virtual network name (required for 'existing_vnet')
@@ -70,9 +72,6 @@ When selecting the Azure Virtual Machine for the Datasync Agent, we recommend th
 - For detailed AWS DataSync agent requirements, see the [AWS DataSync Agent Requirements](https://docs.aws.amazon.com/datasync/latest/userguide/agent-requirements.html) documentation.
 
 ---
-
-### Download the Deployment Script
-
 Run the following command to download the deployment script from the code repository:
 
 ```
@@ -86,15 +85,26 @@ chmod +x datasync.sh
 
 Once you have your parameters ready, you can initiate the deployment script using the following commands:
 
-For new_vnet deployment:
 ```
-sudo bash datasync.sh -d new_vnet -l eastus -r myResourceGroup -v myVM -z Standard_E4s_v3
+sudo bash datasync.sh -d new_vnet -l eastus -r testResourceGroup -v testVM -z Standard_E4s_v3 -u xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
+
+Replace `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` with your actual Azure subscription ID.
 
 For existing_vnet deployment:
 ```
-sudo bash datasync.sh -d existing_vnet -l eastus -r aws-datasync-rg -v datasync-vm -g existing-vnet-rg -n existing-vnet -s existing-subnet -z Standard_E16_v5
+sudo bash datasync.sh -d existing_vnet -l eastus -r aws-datasync-rg -v datasync-vm -g existing-vnet-rg -n existing-vnet -s existing-subnet -z Standard_E16_v5 -u mySubscriptionId
 ```
+Replace `subscription-id` with your actual Azure subscription ID.
+
+### Subscription ID Validation
+
+The script validates the provided Azure subscription ID to ensure it is correct. If the subscription ID is invalid, the script will log an error and exit. Retrieve the correct subscription ID using the following command in Azure CloudShell:
+
+```
+az account list --output table
+```
+### Download the Deployment Script
 
 ## Azure CLI Login
 You will be prompted to login to Azure and allow the script to create the Virtual Machine for the DataSync Appliance
