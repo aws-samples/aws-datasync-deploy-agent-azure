@@ -47,11 +47,12 @@ function show_help() {
     echo "  -g <vnet_rg>          Virtual network resource group (required for 'existing_vnet')"
     echo "  -n <vnet_name>        Virtual network name (required for 'existing_vnet')"
     echo "  -s <subnet_name>      Subnet name (required for 'existing_vnet')"
+    echo "  -u <subscription_id>  Azure subscription ID (optional)"
     echo "  -h                    Show this help message"
     echo
     echo -e "${CYAN}Examples:${RESET}"
-    echo "  $0 -d new_vnet -l eastus -r myResourceGroup -v myVM -z Standard_E4s_v3"
-    echo "  $0 -d existing_vnet -l eastus -r myResourceGroup -v myVM -g myVnetRG -n myVnet -s mySubnet -z Standard_E16_v5"
+    echo "  $0 -d new_vnet -l eastus -r myResourceGroup -v myVM -z Standard_E4s_v3 -u mySubscriptionId"
+    echo "  $0 -d existing_vnet -l eastus -r myResourceGroup -v myVM -g myVnetRG -n myVnet -s mySubnet -z Standard_E16_v5 -u mySubscriptionId"
     exit 0
 }
 
@@ -154,6 +155,14 @@ function convert_datasync() {
     qemu-img convert -f raw -o subformat=fixed,force_size -O vpc "$rawdisk" "$vhddisk"
 
     rm "$rawdisk"
+
+    # Rename the VHD file to match the Azure VM name before upload
+    vhddisk="/tmp/${vm_name}.vhd"
+    mv /tmp/*.vhd "$vhddisk" || {
+        log_error "Failed to rename VHD file to match the VM name."
+        exit 1
+    }
+
     disk_name=$(basename "$vhddisk" .vhd)
     upload_size=$(qemu-img info --output json "$vhddisk" | jq -r '."virtual-size"')
     log_success "DataSync agent converted to VHD successfully."
@@ -179,12 +188,32 @@ function upload_to_azure() {
         exit 1
     }
 
+    if [ -n "${subscription_id:-}" ]; then
+        log_info "Validating Azure subscription: $subscription_id"
+        az account show --subscription "$subscription_id" > /dev/null 2>&1 || {
+            log_error "Please ensure you entered the correct Azure subscription ID. You can run the command \"az account list --output table\" from Azure CloudShell to provide the subscription ID."
+            exit 1
+        }
+        log_success "Azure subscription ID is valid: $subscription_id"
+        az account set --subscription "$subscription_id" || {
+            log_error "Please ensure you entered the correct Azure subscription ID. You can run the command \"az account list --output table\" from Azure CloudShell to provide the subscription ID."
+            exit 1
+        }
+    fi
+
     check_resource_group
 
     az disk create -n "$disk_name" -g "$resource_group" -l "$location" --os-type Linux --upload-type Upload --upload-size-bytes "$upload_size" --sku Standard_LRS --only-show-errors || {
-        log_error "Failed to create Azure disk."
+        log_error "Failed to create Azure disk. Ensure the disk is created with the correct upload type."
         exit 1
     }
+
+    # Verify the disk state before granting SAS access
+    disk_state=$(az disk show -n "$disk_name" -g "$resource_group" --query 'diskState' -o tsv)
+    if [[ "$disk_state" != "ReadyToUpload" && "$disk_state" != "ActiveUpload" ]]; then
+        log_error "Disk is not in a valid state for upload. Current state: $disk_state"
+        exit 1
+    fi
 
     sas_uri=$(az disk grant-access -n "$disk_name" -g "$resource_group" --access-level Write --duration-in-seconds 86400 | jq -r '.accessSas') || {
         log_error "Failed to grant SAS access."
@@ -224,7 +253,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 # Parse command-line arguments
-while getopts ":d:l:r:v:g:n:s:z:h" opt; do
+while getopts ":d:l:r:v:g:n:s:z:u:h" opt; do
     case $opt in
         d) deployment_type="$OPTARG" ;;
         l) location="$OPTARG" ;;
@@ -234,6 +263,7 @@ while getopts ":d:l:r:v:g:n:s:z:h" opt; do
         n) vnet_name="$OPTARG" ;;
         s) subnet_name="$OPTARG" ;;
         z) vm_size="$OPTARG" ;;
+        u) subscription_id="$OPTARG" ;;
         h) show_help ;;
         *)
             log_error "Invalid option: -$OPTARG"
