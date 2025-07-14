@@ -2,6 +2,8 @@
 
 This repository contains a script designed to convert the DataSync Agent VHDX to VHD on Amazon Linux 2 (AL2), upload the generated disk to Azure and create an Azure Virtual Machine. The script will create the DataSync Virtual Machine in a new Azure vNet and Subnet or it can also use an existing Azure vNET and Subnet. Please review the Parameters section for deployment options.
 
+This repository contains a script designed to convert the DataSync Agent VHDX to VHD on Amazon Linux 2 (AL2), upload the generated disk to Azure and create an Azure Virtual Machine. The script will create the DataSync Virtual Machine in a new Azure vNet and Subnet or it can also use an existing Azure vNET and Subnet. During deployment, you have the option to specify your Azure Subscription ID, which allows the script to deploy the appliance within a specific Azure subscription context. Please review the Parameters section for all deployment options, including how to specify the Subscription ID and other configuration settings.
+
 ## Blogs
 For more details on migrating Azure Blob Storage to Amazon S3 using AWS DataSync, see the following blog post:
 
