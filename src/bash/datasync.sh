@@ -215,7 +215,7 @@ function upload_to_azure() {
         exit 1
     fi
 
-    sas_uri=$(az disk grant-access -n "$disk_name" -g "$resource_group" --access-level Write --duration-in-seconds 86400 | jq -r '.accessSas') || {
+    sas_uri=$(az disk grant-access -n "$disk_name" -g "$resource_group" --access-level Write --duration-in-seconds 86400 | jq -r '.accessSAS') || {
         log_error "Failed to grant SAS access."
         exit 1
     }
