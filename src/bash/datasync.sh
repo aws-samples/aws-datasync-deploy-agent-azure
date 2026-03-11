@@ -11,6 +11,9 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 RESET='\033[0m'
 
+#Tag array
+declare -a vm_tags=()
+
 # Log warning messages
 function log_warning() {
     echo -e "${YELLOW}[WARNING] $1${RESET}"
@@ -48,6 +51,7 @@ function show_help() {
     echo "  -n <vnet_name>        Virtual network name (required for 'existing_vnet')"
     echo "  -s <subnet_name>      Subnet name (required for 'existing_vnet')"
     echo "  -u <subscription_id>  Azure subscription ID (optional)"
+    echo "  -t <Key=Value>        Tag (repeatable, e.g., -t Env=Prod -t Team=DevOps)"
     echo "  -h                    Show this help message"
     echo
     echo -e "${CYAN}Examples:${RESET}"
@@ -231,15 +235,28 @@ function upload_to_azure() {
 
 # Create a new Azure VM using the uploaded VHD
 function create_vm() {
+    local tag_args=""
+    if [ ${#vm_tags[@]} -gt 0 ]; then
+        tag_args="--tags"
+        for tag in "${vm_tags[@]}"; do
+            tag_args="$tag_args $tag"
+        done
+    fi
+
     log_info "Creating Azure VM: $vm_name..."
     if [ "$deployment_type" == "new_vnet" ]; then
-        az vm create -g "$resource_group" -l "$location" --name "$vm_name" --size "$vm_size" --os-type Linux --attach-os-disk "$disk_name" --public-ip-address "" --only-show-errors || {
+        az vm create -g "$resource_group" -l "$location" --name "$vm_name" \
+          --size "$vm_size" --os-type Linux --attach-os-disk "$disk_name" \
+          --public-ip-address "" $tag_args --only-show-errors || {
             log_error "Failed to create Azure VM."
             exit 1
         }
     else
-        subnet_id=$(az network vnet subnet show --resource-group "$vnet_rg" --vnet-name "$vnet_name" --name "$subnet_name" -o tsv --query id)
-        az vm create -g "$resource_group" -l "$location" --name "$vm_name" --size "$vm_size" --os-type Linux --attach-os-disk "$disk_name" --subnet "$subnet_id" --public-ip-address "" --only-show-errors || {
+        subnet_id=$(az network vnet subnet show --resource-group "$vnet_rg" \
+          --vnet-name "$vnet_name" --name "$subnet_name" -o tsv --query id)
+        az vm create -g "$resource_group" -l "$location" --name "$vm_name" \
+          --size "$vm_size" --os-type Linux --attach-os-disk "$disk_name" \
+          --subnet "$subnet_id" --public-ip-address "" $tag_args --only-show-errors || {
             log_error "Failed to create Azure VM."
             exit 1
         }
@@ -264,6 +281,7 @@ while getopts ":d:l:r:v:g:n:s:z:u:h" opt; do
         s) subnet_name="$OPTARG" ;;
         z) vm_size="$OPTARG" ;;
         u) subscription_id="$OPTARG" ;;
+        t) vm_tags+=("$OPTARG") ;;
         h) show_help ;;
         *)
             log_error "Invalid option: -$OPTARG"
