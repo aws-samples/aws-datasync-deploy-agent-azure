@@ -63,6 +63,13 @@ Before running the deployment script, please ensure that you have the following 
 > This script has been developed to run on an Amazon Linux 2023 AMI. The EC2 instance should have at least **200GB** of disk space: the conversion holds the intermediate `.raw` and the final fixed `.vhd` (each roughly 80GB) at the same time, so ~160GB is the bare peak and leaves no headroom. The script pre-checks for at least 170GB free on the work directory and will stop early if there is not enough space. (Amazon Linux 2 reached end of life on June 30, 2026 and should no longer be used.)
 >
 > **Note:** the script writes its large intermediate files to `/var/tmp` by default (override with the `WORKDIR` environment variable). Do not use `/tmp`, which on Amazon Linux 2023 is a RAM-backed `tmpfs` mount that is far too small.
+>
+> ⚠️ **Default agent credentials.** The deployed DataSync agent VM ships with well-known default
+> credentials (`admin` / `password`) on its local console. Before or immediately after deployment,
+> plan to either change the password on first login **or** confirm the local console is not
+> network-reachable (see the Azure NSG guidance in [Network and IAM Access](#network-and-iam-access)
+> and the [Security](#security) section). Do not leave the default credentials reachable from
+> untrusted networks.
 
 ![Amazon EC2 Launch Instance](./docs/datasync.png)
 
@@ -115,12 +122,26 @@ Run the following command to download the deployment script from the code reposi
 curl -sLO https://raw.githubusercontent.com/aws-samples/aws-datasync-deploy-agent-azure/main/src/bash/datasync.sh
 ```
 
-> **Before running, review the script.** This sample is executed with `sudo`, so it runs with
-> root privileges on your EC2 instance. Open `datasync.sh` and read it before running, and
-> for reproducible deployments pin the download to a specific release tag instead of `main`
-> (replace `main` in the URL above with the tag you want).
+**Verify the download before running it.** Because the script is executed with `sudo` (root),
+confirm its integrity against the published SHA-256 checksum before making it executable:
 
-Make the script executable:
+```
+echo "b98ac5d4639b4a09e74138ec9e1411ad6c61b3ef9882be3bd12ce0c69d9e1c73  datasync.sh" | sha256sum -c -
+```
+
+The command prints `datasync.sh: OK` on success and fails loudly on any mismatch. The expected
+checksum above corresponds to the current `main`. **For a reproducible deployment, download from a
+release tag** (replace `main` in the URL with the tag) and use the checksum published for that
+release — see the checksum table below.
+
+| Ref | SHA-256 of `src/bash/datasync.sh` |
+|-----|-----------------------------------|
+| `main` (current) | `b98ac5d4639b4a09e74138ec9e1411ad6c61b3ef9882be3bd12ce0c69d9e1c73` |
+
+> **Maintainers:** regenerate this value whenever `datasync.sh` changes (`sha256sum src/bash/datasync.sh`)
+> and publish the per-tag checksum with each release so users can pin it.
+
+Once verified, make the script executable:
 ```
 chmod +x datasync.sh
 ```
@@ -167,15 +188,73 @@ After the successful deployment of the AWS DataSync agent on the Azure Virtual M
 Username: admin   
 Password: password
 
-Be sure to use these credentials to log into the DataSync agent and continue the setup and configuration.
+Use these credentials to log into the DataSync agent and continue the setup and configuration.
+**On first login you will be prompted to change the password** — set a strong, unique value when prompted.
 
-> ⚠️ **Security: change the default password immediately.** `admin` / `password` are
-> well-known default credentials. On first login, change the password to a strong, unique
-> value. Do not expose the agent local console to untrusted or public networks — this script
-> deliberately creates the VM **without a public IP** (`--public-ip-address ""`), so reach the
-> console over the private vNet or through a bastion host, and restrict the subnet's network
-> security group to only the sources that need access.
+> ⚠️ **Security: change the default password on first login.** `admin` / `password` are
+> well-known default credentials. The agent prompts you to change the password the first time you
+> log in — do so with a strong, unique value and do not defer it. Also do not expose the agent
+> local console to untrusted or public networks — this script deliberately creates the VM
+> **without a public IP** (`--public-ip-address ""`), so reach the console over the private vNet
+> or through a bastion host, and restrict the subnet's network security group to only the sources
+> that need access.
 
+
+## Network and IAM Access
+
+After the agent VM exists, you still need network connectivity from the agent to AWS and the
+right AWS permissions to activate it. The script creates the VM **without a public IP**; the
+guidance below assumes that private-by-default posture.
+
+### Azure side — minimum NSG rules for the agent VM
+
+| Direction | Protocol / Port | Source / Destination | Purpose |
+|-----------|-----------------|----------------------|---------|
+| Outbound | TCP 443 | `datasync.<region>.amazonaws.com` and the AWS DataSync agent/service endpoints | Agent activation and data transfer to AWS |
+| Outbound | TCP 443 | Your S3 / storage destination endpoints | Data transfer to the destination |
+| Inbound | TCP 80 | Operator subnet **only** (activation) | One-time local console activation, if activating over HTTP from the same network |
+| Inbound | TCP 22 | Operator subnet / bastion **only** | Optional SSH for direct operator access |
+| Inbound | Any | Internet (`0.0.0.0/0`) | **Deny by default** — do not expose the agent console or SSH to the Internet |
+
+Notes:
+- Keep **inbound from the Internet denied**. Reach the agent over the private vNet, vNet peering, or a bastion host.
+- For **private activation**, use a DataSync VPC endpoint on the AWS side and allow outbound 443 to that endpoint's private IPs instead of the public service endpoint.
+- Restrict inbound TCP 80/22 to the specific operator source ranges that need them; remove them entirely once activation is complete.
+
+### AWS side — minimum IAM permissions for the activator
+
+Activating the agent is a `datasync:CreateAgent` API call (despite the "Create" name, this is the
+action that activates an already-deployed agent using its activation key). If you activate using a
+broad identity such as an administrator or account owner, these permissions are already granted and
+no extra setup is needed — which is why you may never have configured them explicitly. The policy
+below matters when the activator uses a **least-privilege** role. It needs at least:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "datasync:CreateAgent",
+        "datasync:DescribeAgent",
+        "datasync:ListAgents"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+Scope `Resource` down from `*` to specific agent ARNs where your environment allows it — DataSync
+agents have the ARN format `arn:aws:datasync:<region>:<account-id>:agent/<agent-id>`.
+
+If you activate the agent privately through a DataSync VPC endpoint, control API access with a
+**VPC endpoint policy** (DataSync supports endpoint policies that restrict which actions and
+principals can use the endpoint). See
+[Access management for AWS DataSync](https://docs.aws.amazon.com/datasync/latest/userguide/managing-access-overview.html)
+for the identity-based policy model, agent/location/task resource ARNs, and a VPC endpoint policy
+example. DataSync supports only identity-based policies (no resource-based policies).
 
 ### Logging
 The script includes logging with color-coded output:
@@ -189,7 +268,13 @@ The script includes logging with color-coded output:
 
 Once the deployment script has successfully executed and the AWS DataSync Agent is deployed on Azure, you can clean up your environment:
 
-1. **Delete the Amazon Linux 2023 EC2 instance.** The EC2 instance used for the deployment can be safely deleted once the script completes — it is only needed for the one-time VHDX→VHD conversion and upload, and is not required for the running agent.
+1. **Delete the EC2 conversion instance and its EBS volume.** The EC2 instance is only needed for the one-time VHDX→VHD conversion and upload, and is not required for the running agent. Terminating the instance deletes the root EBS volume only if "delete on termination" was set (the default for the root volume); any additional/attached EBS volumes must be deleted separately:
+   ```bash
+   aws ec2 terminate-instances --instance-ids <instance-id>
+   # after termination, delete any leftover volumes that were not auto-deleted
+   aws ec2 describe-volumes --filters Name=status,Values=available --query "Volumes[].VolumeId" --output text
+   aws ec2 delete-volume --volume-id <volume-id>
+   ```
 
 2. **Remove the scratch files on the build instance** (only relevant if you keep the EC2 instance). The conversion leaves large intermediate images (the agent zip and the ~80 GB `.vhd`) in the work directory:
    ```bash
@@ -197,7 +282,17 @@ Once the deployment script has successfully executed and the AWS DataSync Agent 
    ```
    (A subsequent run of the script also clears these automatically before starting.)
 
-3. **Delete any orphaned Azure managed disks from failed attempts.** If VM creation failed (for example due to `SkuNotAvailable` capacity errors) and you re-ran the deployment, earlier uploaded disks may be left behind and will continue to incur storage charges. List and delete unattached disks:
+3. **Delete the intermediate VHD blob from Azure Storage.** This script uploads directly to a managed disk (via `az disk create --upload-type Upload`), so in the default flow there is **no** separate staging blob to remove. However, if you adapted the flow to stage the VHD in a Storage account blob first, delete that blob once the managed disk exists:
+   ```bash
+   az storage blob delete --account-name <storage-account> --container-name <container> --name <vm_name>.vhd --auth-mode login
+   ```
+
+4. **Optionally delete the staging Storage account** if one was created solely for this deployment:
+   ```bash
+   az storage account delete --name <storage-account> -g <resource_group> --yes
+   ```
+
+5. **Delete any orphaned Azure managed disks from failed attempts.** If VM creation failed (for example due to `SkuNotAvailable` capacity errors) and you re-ran the deployment, earlier uploaded disks may be left behind and will continue to incur storage charges. List and delete unattached disks:
    ```bash
    # list disks and their attachment state
    az disk list -g <resource_group> --query "[].{name:name, state:diskState, attachedTo:managedBy}" -o table
@@ -205,10 +300,16 @@ Once the deployment script has successfully executed and the AWS DataSync Agent 
    az disk delete -n <disk_name> -g <resource_group> --yes
    ```
 
-4. **Remove the resource group entirely** if it was created solely for this deployment and you want to tear everything down (VM, disk, and vNet if `new_vnet` was used):
-   ```bash
-   az group delete --name <resource_group> --yes --no-wait
-   ```
+6. **Decide whether to retain or delete the network resources.**
+   - If you used the **`new_vnet`** path, the script created a new vNet and subnet. To tear everything down (VM, disk, vNet), delete the whole resource group:
+     ```bash
+     az group delete --name <resource_group> --yes --no-wait
+     ```
+   - If you used the **`existing_vnet`** path, **do not** delete the resource group or vNet — those pre-existed and may host other resources. Delete only the VM and its managed disk:
+     ```bash
+     az vm delete -g <resource_group> -n <vm_name> --yes
+     az disk delete -g <resource_group> -n <disk_name> --yes
+     ```
 
 Thank you for using the AWS DataSync Deployment for Azure repository. We hope this tool proves valuable in streamlining your data synchronization between AWS and Azure environments.
 
