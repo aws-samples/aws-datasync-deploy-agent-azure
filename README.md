@@ -116,30 +116,30 @@ When selecting the Azure Virtual Machine for the Datasync Agent, we recommend th
 
 ---
 ### Download the Deployment Script
-Run the following command to download the deployment script from the code repository:
+For a reproducible deployment, download the script from a **release tag** (not `main`, which
+changes over time). The current release is `v1.0.0`:
 
 ```
-curl -sLO https://raw.githubusercontent.com/aws-samples/aws-datasync-deploy-agent-azure/main/src/bash/datasync.sh
+curl -sLO https://raw.githubusercontent.com/aws-samples/aws-datasync-deploy-agent-azure/v1.0.0/src/bash/datasync.sh
 ```
 
 **Verify the download before running it.** Because the script is executed with `sudo` (root),
-confirm its integrity against the published SHA-256 checksum before making it executable:
+confirm its integrity against the published SHA-256 checksum for that release before making it
+executable:
 
 ```
 echo "b98ac5d4639b4a09e74138ec9e1411ad6c61b3ef9882be3bd12ce0c69d9e1c73  datasync.sh" | sha256sum -c -
 ```
 
-The command prints `datasync.sh: OK` on success and fails loudly on any mismatch. The expected
-checksum above corresponds to the current `main`. **For a reproducible deployment, download from a
-release tag** (replace `main` in the URL with the tag) and use the checksum published for that
-release — see the checksum table below.
+The command prints `datasync.sh: OK` on success and fails loudly on any mismatch.
 
-| Ref | SHA-256 of `src/bash/datasync.sh` |
-|-----|-----------------------------------|
-| `main` (current) | `b98ac5d4639b4a09e74138ec9e1411ad6c61b3ef9882be3bd12ce0c69d9e1c73` |
+| Release tag | SHA-256 of `src/bash/datasync.sh` |
+|-------------|-----------------------------------|
+| `v1.0.0` | `b98ac5d4639b4a09e74138ec9e1411ad6c61b3ef9882be3bd12ce0c69d9e1c73` |
 
-> **Maintainers:** regenerate this value whenever `datasync.sh` changes (`sha256sum src/bash/datasync.sh`)
-> and publish the per-tag checksum with each release so users can pin it.
+> **Maintainers:** cut a new release tag whenever `datasync.sh` changes, regenerate this value
+> (`sha256sum src/bash/datasync.sh`), and add a row for the new tag so users can pin to a verified
+> release. Downloading from `main` is not recommended because its checksum is not stable.
 
 Once verified, make the script executable:
 ```
