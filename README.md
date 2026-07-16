@@ -80,21 +80,14 @@ Before running the deployment script, please ensure that you have the following 
 - **Virtual Machine Name (-v)**: The  name for the Azure Virtual Machine that will host the AWS DataSync Agent (e.g. aws-datasync-vm)
 - **Virtual Machine Size (-z)**: Azure VM size (e.g., 'Standard_E4s_v5', 'Standard_E16_v5')
 
-**Optional Parameter:**
+**Optional Parameters:**
 - **Subscription ID (-u)**: Azure subscription ID (optional)
+- **Tag (-t)**: Azure resource tag as `Key=Value`, applied to the created VM. Repeatable — pass `-t` multiple times to add several tags (e.g. `-t Env=Prod -t Team=DevOps`).
 
 **Additional Parameters (when -d is existing_vnet):**
 - **VNET Resource Group (-g)**: Virtual network resource group (required for 'existing_vnet')
 - **VNET Name (-n)**: Virtual network name (required for 'existing_vnet')
 - **Subnet Name (-s)**: (required for 'existing_vnet')
-
-**Display Help Menu**
-- **Show help message (-h)**
-```
-sudo bash datasync.sh -h
-```
-![Datasync Help Menu options](./docs/deployment-menu-options.png)
-
 
 When selecting the Azure Virtual Machine for the Datasync Agent, we recommend the following:
 - 32 GB of RAM assigned to the VM for task executions working with **up** to 20 million files, objects, or directories.
@@ -145,6 +138,13 @@ Once verified, make the script executable:
 ```
 chmod +x datasync.sh
 ```
+
+**Display the help menu** to see all available options:
+```
+sudo bash datasync.sh -h
+```
+![Datasync Help Menu options](./docs/deployment-menu-options.png)
+
 ### Running the Deployment Script
 
 Once you have your parameters ready, you can initiate the deployment script using the following commands:
@@ -160,6 +160,11 @@ For existing_vnet deployment:
 sudo bash datasync.sh -d existing_vnet -l eastus -r aws-datasync-rg -v datasync-vm -g existing-vnet-rg -n existing-vnet -s existing-subnet -z Standard_E16_v5 -u mySubscriptionId
 ```
 Replace `mySubscriptionId` with your actual Azure subscription ID.
+
+To apply Azure resource tags to the created VM, add one or more `-t Key=Value` flags:
+```
+sudo bash datasync.sh -d new_vnet -l eastus -r testResourceGroup -v testVM -z Standard_E4s_v5 -u mySubscriptionId -t Env=Prod -t Team=DevOps
+```
 
 ### Subscription ID Validation
 
