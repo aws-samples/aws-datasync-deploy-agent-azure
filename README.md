@@ -106,7 +106,12 @@ When selecting the Azure Virtual Machine for the Datasync Agent, we recommend th
 > az vm list-skus --location <region> --resource-type virtualMachines --all \
 >   --query "[?length(restrictions)==\`0\` && capabilities[?name=='HyperVGenerations' && contains(value,'V1')] && capabilities[?name=='vCPUs' && value=='4']].name" -o tsv
 > ```
-
+> **Shell compatibility:**
+> - **Bash** (default, recommended): uses `\`` to escape backticks in the JMESPath query
+> - **PowerShell**: replace `\`` with ` `` ` (double backtick). Example:
+> ```powershell
+> az vm list-skus --location <region> --resource-type virtualMachines --all --query "[?length(restrictions)==``0`` && capabilities[?name=='HyperVGenerations' && contains(value,'V1')] && capabilities[?name=='vCPUs' && value=='4']].name" -o tsv
+> ```
 ---
 ### Download the Deployment Script
 For a reproducible deployment, download the script from a **release tag** (not `main`, which
