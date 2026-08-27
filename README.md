@@ -25,7 +25,7 @@ The deployment runs from an Amazon Linux 2023 EC2 instance and produces a DataSy
 flowchart LR
     subgraph AWS["AWS"]
         EC2["Amazon Linux 2023<br/>EC2 instance"]
-        CF["DataSync agent zip<br/>(Hyper-V VHDX)"]
+        CF["DataSync agent<br/>(ZIP or VHDX)"]
         CF -->|"curl download"| EC2
         EC2 -->|"qemu-img: VHDX to VHD"| VHD["Fixed VHD"]
     end
@@ -37,6 +37,17 @@ flowchart LR
     end
     VHD -->|"AzCopy to time-limited SAS"| DISK
 ```
+
+## Agent Types
+
+AWS DataSync provides two agent variants for Azure deployment:
+
+- **Basic Agent**: Distributed as a ZIP archive containing a VHDX disk image.
+- **Enhanced Agent** (default): Distributed as a direct VHDX download. The Enhanced agent allows for faster data transfer.
+
+The Enhanced agent runs on the deployed VM and supports traffic shaping over a private network.
+
+You can specify the agent type using the `-a` flag. If not specified, the script defaults to the Enhanced agent.
 
 ## Deployment Steps
 
@@ -75,12 +86,13 @@ Before running the deployment script, please ensure that you have the following 
 
 **Mandatory Parameters:**
 - **Deployment Type (-d)**: Choose whether you want to use a ('new_vnet' or 'existing_vnet')
-- **Location (-l)**: Azure region where you want to deploy your resources (e.g., 'eastus', 'westus')
+- **Location (-l)**: Azure region where you want to deploy your resources (e.g., 'eastus', 'westus', 'centralus')
 - **Resource Group (-r)**: Azure Resource Group name (e.g. aws-datasync-rg)
 - **Virtual Machine Name (-v)**: The  name for the Azure Virtual Machine that will host the AWS DataSync Agent (e.g. aws-datasync-vm)
-- **Virtual Machine Size (-z)**: Azure VM size (e.g., 'Standard_E4s_v5', 'Standard_E16_v5')
+- **Virtual Machine Size (-z)**: Azure VM size — 'Standard_E4s_v4' (4 vCPU) for the Basic agent, 'Standard_E8s_v4' (8 vCPU) for the Enhanced agent
 
 **Optional Parameters:**
+- **Agent Type (-a)**: DataSync agent variant ('basic' or 'enhanced', defaults to 'enhanced'). See [Agent Types](#agent-types) for details.
 - **Subscription ID (-u)**: Azure subscription ID (optional)
 - **Tag (-t)**: Azure resource tag as `Key=Value`, applied to the created VM. Repeatable — pass `-t` multiple times to add several tags (e.g. `-t Env=Prod -t Team=DevOps`).
 
@@ -98,41 +110,49 @@ When selecting the Azure Virtual Machine for the Datasync Agent, we recommend th
 > size that supports Gen1 disks. Newer size families are **Gen2-only** (e.g. the `v7` E/D-series)
 > or **confidential-compute only** (e.g. `EC*`/`DC*` sizes, which require a ConfidentialVM/Gen2
 > image) and will fail with a `cannot boot Hypervisor Generation '1'` or `security type` error.
-> Gen1-capable families such as `Esv3`/`Esv4`/`Esv5` (e.g. `Standard_E4s_v5`) work. If your chosen
-> size reports **capacity restrictions** (`SkuNotAvailable`) in your region, try another Availability
-> Zone (`az vm create --zone 1|2|3`), or deploy to a different region (`-l eastus2`, `-l westus2`).
-> To list Gen1-capable, unrestricted 4-vCPU sizes in a region:
+> Gen1-capable families such as `Esv3`/`Esv4`/`Esv5` (e.g. `Standard_E4s_v4`, `Standard_E8s_v4`)
+> work. If your chosen size reports **capacity restrictions** (`SkuNotAvailable`) in your region,
+> try another Availability Zone (`az vm create --zone 1|2|3`), or deploy to a different region
+> (`-l centralus`, `-l westus2`).
+> To list Gen1-capable, unrestricted sizes in a region, set `value` to the vCPU count for your
+> agent type — `'4'` for the Basic agent, `'8'` for the Enhanced agent:
 > ```bash
 > az vm list-skus --location <region> --resource-type virtualMachines --all \
->   --query "[?length(restrictions)==\`0\` && capabilities[?name=='HyperVGenerations' && contains(value,'V1')] && capabilities[?name=='vCPUs' && value=='4']].name" -o tsv
+>   --query "[?length(restrictions)==\`0\` && capabilities[?name=='HyperVGenerations' && contains(value,'V1')] && capabilities[?name=='vCPUs' && value=='8']].name" -o tsv
 > ```
 > **Shell compatibility:**
 > - **Bash** (default, recommended): uses `\`` to escape backticks in the JMESPath query
 > - **PowerShell**: replace `\`` with ` `` ` (double backtick). Example:
 > ```powershell
-> az vm list-skus --location <region> --resource-type virtualMachines --all --query "[?length(restrictions)==``0`` && capabilities[?name=='HyperVGenerations' && contains(value,'V1')] && capabilities[?name=='vCPUs' && value=='4']].name" -o tsv
+> az vm list-skus --location <region> --resource-type virtualMachines --all --query "[?length(restrictions)==``0`` && capabilities[?name=='HyperVGenerations' && contains(value,'V1')] && capabilities[?name=='vCPUs' && value=='8']].name" -o tsv
 > ```
 ---
 ### Download the Deployment Script
 For a reproducible deployment, download the script from a **release tag** (not `main`, which
-changes over time). The current release is `v1.0.0`:
+changes over time). The current release is `v1.1.0`:
 
 ```
-curl -sLO https://raw.githubusercontent.com/aws-samples/aws-datasync-deploy-agent-azure/v1.0.0/src/bash/datasync.sh
+curl -sLO https://raw.githubusercontent.com/aws-samples/aws-datasync-deploy-agent-azure/v1.1.0/src/bash/datasync.sh
 ```
+
+> **Note:** Version `v1.1.0` adds agent selection via the `-a` flag **and changes the default agent
+> from Basic to Enhanced.** A `v1.0.0` command line re-run unchanged on `v1.1.0` will therefore
+> deploy a different agent image — pass `-a basic` to keep the previous behaviour, or pin to
+> `v1.0.0` for the original basic agent-only version.
 
 **Verify the download before running it.** Because the script is executed with `sudo` (root),
 confirm its integrity against the published SHA-256 checksum for that release before making it
 executable:
 
 ```
-echo "b98ac5d4639b4a09e74138ec9e1411ad6c61b3ef9882be3bd12ce0c69d9e1c73  datasync.sh" | sha256sum -c -
+echo "b902f7b721f5f4519f3218c651045ea505ad021efe0c535906b37696d8a4749d  datasync.sh" | sha256sum -c -
 ```
 
 The command prints `datasync.sh: OK` on success and fails loudly on any mismatch.
 
 | Release tag | SHA-256 of `src/bash/datasync.sh` |
 |-------------|-----------------------------------|
+| `v1.1.0` | `b902f7b721f5f4519f3218c651045ea505ad021efe0c535906b37696d8a4749d` |
 | `v1.0.0` | `b98ac5d4639b4a09e74138ec9e1411ad6c61b3ef9882be3bd12ce0c69d9e1c73` |
 
 > **Maintainers:** cut a new release tag whenever `datasync.sh` changes, regenerate this value
@@ -155,20 +175,26 @@ sudo bash datasync.sh -h
 Once you have your parameters ready, you can initiate the deployment script using the following commands:
 
 ```
-sudo bash datasync.sh -d new_vnet -l eastus -r testResourceGroup -v testVM -z Standard_E4s_v5 -u xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+# Default (Enhanced agent)
+sudo bash datasync.sh -d new_vnet -l centralus -r testResourceGroup -v testVM -z Standard_E8s_v4 -u xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
 Replace `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` with your actual Azure subscription ID.
 
-For existing_vnet deployment:
+Explicit Enhanced agent:
 ```
-sudo bash datasync.sh -d existing_vnet -l eastus -r aws-datasync-rg -v datasync-vm -g existing-vnet-rg -n existing-vnet -s existing-subnet -z Standard_E16_v5 -u mySubscriptionId
+sudo bash datasync.sh -a enhanced -d new_vnet -l centralus -r testResourceGroup -v testVM -z Standard_E8s_v4 -u mySubscriptionId
 ```
 Replace `mySubscriptionId` with your actual Azure subscription ID.
 
+Using Basic Agent:
+```
+sudo bash datasync.sh -a basic -d existing_vnet -l centralus -r aws-datasync-rg -v datasync-vm -g existing-vnet-rg -n existing-vnet -s existing-subnet -z Standard_E4s_v4 -u mySubscriptionId
+```
+
 To apply Azure resource tags to the created VM, add one or more `-t Key=Value` flags:
 ```
-sudo bash datasync.sh -d new_vnet -l eastus -r testResourceGroup -v testVM -z Standard_E4s_v5 -u mySubscriptionId -t Env=Prod -t Team=DevOps
+sudo bash datasync.sh -d new_vnet -l centralus -r testResourceGroup -v testVM -z Standard_E8s_v4 -u mySubscriptionId -t Env=Prod -t Team=DevOps
 ```
 
 ### Subscription ID Validation

@@ -14,6 +14,10 @@ WORKDIR="${WORKDIR:-/var/tmp}"
 # ~170 GB is the documented minimum; require a little headroom.
 REQUIRED_WORKDIR_GB=170
 
+# AWS DataSync agent URLs
+BASIC_AGENT_URL="https://d8vjazrbkazun.cloudfront.net/AWS-DataSync-Agent-HyperV.zip"
+ENHANCED_AGENT_URL="https://aws-datasync-agent-images-us-east-1-471562754046.s3.us-east-1.amazonaws.com/v3/datasync-agent-3.1-x86_64.vhdx"
+
 # Color definitions for logs
 YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
@@ -52,11 +56,12 @@ function show_help() {
     echo -e "${CYAN}Usage:${RESET} $0 [options]"
     echo
     echo -e "${CYAN}Options:${RESET}"
+    echo "  -a <agent_type>       Agent variant ('basic' or 'enhanced', defaults to 'enhanced')"
     echo "  -d <deployment_type>  Deployment type ('new_vnet' or 'existing_vnet')"
-    echo "  -l <location>         Azure region (e.g., 'eastus', 'westus')"
+    echo "  -l <location>         Azure region (e.g., 'centralus', 'eastus', 'westus')"
     echo "  -r <resource_group>   Azure resource group name"
     echo "  -v <vm_name>          Azure VM name"
-    echo "  -z <vm_size>          Azure VM size (e.g., 'Standard_E4s_v5', 'Standard_E16_v5')"
+    echo "  -z <vm_size>          Azure VM size ('Standard_E4s_v4' for basic, 'Standard_E8s_v4' for enhanced)"
     echo "  -g <vnet_rg>          Virtual network resource group (required for 'existing_vnet')"
     echo "  -n <vnet_name>        Virtual network name (required for 'existing_vnet')"
     echo "  -s <subnet_name>      Subnet name (required for 'existing_vnet')"
@@ -65,8 +70,8 @@ function show_help() {
     echo "  -h                    Show this help message"
     echo
     echo -e "${CYAN}Examples:${RESET}"
-    echo "  $0 -d new_vnet -l eastus -r myResourceGroup -v myVM -z Standard_E4s_v5 -u mySubscriptionId"
-    echo "  $0 -d existing_vnet -l eastus -r myResourceGroup -v myVM -g myVnetRG -n myVnet -s mySubnet -z Standard_E16_v5 -u mySubscriptionId"
+    echo "  $0 -d new_vnet -l centralus -r myResourceGroup -v myVM -z Standard_E8s_v4 -u mySubscriptionId"
+    echo "  $0 -a basic -d existing_vnet -l centralus -r myResourceGroup -v myVM -g myVnetRG -n myVnet -s mySubnet -z Standard_E4s_v4 -u mySubscriptionId"
     exit 0
 }
 
@@ -76,6 +81,17 @@ function validate_inputs() {
     if [ -z "${deployment_type:-}" ] || [ -z "${location:-}" ] || [ -z "${resource_group:-}" ] || [ -z "${vm_name:-}" ] || [ -z "${vm_size:-}" ]; then
         log_error "Missing required parameters. Use -h for help."
         exit 1
+    fi
+
+    # Normalize and validate agent type
+    if [ -n "${agent_type:-}" ]; then
+        agent_type=$(echo "$agent_type" | tr '[:upper:]' '[:lower:]')
+        if [[ "$agent_type" != "basic" && "$agent_type" != "enhanced" ]]; then
+            log_error "Invalid agent type (-a). Must be 'basic' or 'enhanced'."
+            exit 1
+        fi
+    else
+        agent_type="enhanced"  # Default to enhanced (faster data transfer)
     fi
 
     if [[ "$deployment_type" != "new_vnet" && "$deployment_type" != "existing_vnet" ]]; then
@@ -159,23 +175,49 @@ function setup_dependencies() {
 
 # Download the AWS DataSync agent
 function download_datasync() {
-    log_info "Downloading AWS DataSync agent for Hyper-V..."
-    curl -fL https://d8vjazrbkazun.cloudfront.net/AWS-DataSync-Agent-HyperV.zip -o "$WORKDIR"/datasync.zip || {
-        log_error "Failed to download AWS DataSync agent."
+    local download_url
+    local download_file
+
+    if [ "$agent_type" == "enhanced" ]; then
+        download_url="$ENHANCED_AGENT_URL"
+        download_file="$WORKDIR/datasync.vhdx"
+    else
+        download_url="$BASIC_AGENT_URL"
+        download_file="$WORKDIR/datasync.zip"
+    fi
+
+    log_info "Downloading AWS DataSync ${agent_type^} Agent for Hyper-V..."
+    curl -fL "$download_url" -o "$download_file" || {
+        log_error "Failed to download AWS DataSync ${agent_type^} Agent."
         exit 1
     }
-    log_success "AWS DataSync agent downloaded successfully."
+    log_success "AWS DataSync ${agent_type^} Agent downloaded successfully."
 }
 
 # Convert the downloaded DataSync agent to a VHD format
 function convert_datasync() {
-    log_info "Converting AWS DataSync agent to VHD format..."
-    unzip "$WORKDIR"/datasync.zip -d "$WORKDIR" || {
-        log_error "Failed to extract AWS DataSync agent."
-        exit 1
-    }
+    log_info "Converting AWS DataSync ${agent_type^} Agent to VHD format..."
 
-    vhdxdisk=$(find "$WORKDIR" -name '*.vhdx' | head -n 1)
+    local vhdxdisk
+
+    if [ "$agent_type" == "basic" ]; then
+        log_info "Extracting ${agent_type^} Agent from ZIP archive..."
+        unzip "$WORKDIR"/datasync.zip -d "$WORKDIR" || {
+            log_error "Failed to extract AWS DataSync agent."
+            exit 1
+        }
+        vhdxdisk=$(find "$WORKDIR" -name '*.vhdx' | head -n 1)
+    else
+        # Enhanced agent is already a VHDX
+        vhdxdisk="$WORKDIR/datasync.vhdx"
+    fi
+
+    # Validate VHDX file exists
+    if [ ! -f "$vhdxdisk" ]; then
+        log_error "VHDX file not found: $vhdxdisk"
+        exit 1
+    fi
+
     rawdisk=${vhdxdisk//vhdx/raw}
     vhddisk=${vhdxdisk//vhdx/vhd}
 
@@ -193,16 +235,20 @@ function convert_datasync() {
     # Rename the VHD file to match the Azure VM name before upload.
     # Move the specific file produced above (not a "$WORKDIR"/*.vhd glob) to stay robust
     # if other .vhd files are ever present in the work directory.
+    # Skip the move when the converted file is already at the target path (e.g. the enhanced
+    # agent produces "datasync.vhd" and -v is "datasync"); mv refuses a same-file move.
     target_vhd="$WORKDIR/${vm_name}.vhd"
-    mv "$vhddisk" "$target_vhd" || {
-        log_error "Failed to rename VHD file to match the VM name."
-        exit 1
-    }
+    if [ "$vhddisk" != "$target_vhd" ]; then
+        mv "$vhddisk" "$target_vhd" || {
+            log_error "Failed to rename VHD file to match the VM name."
+            exit 1
+        }
+    fi
     vhddisk="$target_vhd"
 
     disk_name=$(basename "$vhddisk" .vhd)
     upload_size=$(qemu-img info --output json "$vhddisk" | jq -r '."virtual-size"')
-    log_success "DataSync agent converted to VHD successfully."
+    log_success "DataSync ${agent_type^} Agent converted to VHD successfully."
 }
 
 # Check if the specified resource group exists, create it if not
@@ -283,16 +329,24 @@ function handle_vm_create_failure() {
     log_error "Failed to create Azure VM."
     [ -n "$err" ] && echo -e "${RED}${err}${RESET}"
 
+    # The enhanced agent is deployed on an 8-vCPU size; the basic agent on 4.
+    local required_vcpus="4"
+    local suggested_size="Standard_E4s_v4"
+    if [ "$agent_type" == "enhanced" ]; then
+        required_vcpus="8"
+        suggested_size="Standard_E8s_v4"
+    fi
+
     if echo "$err" | grep -qi "Hypervisor Generation\|Gen2\|azuregen2vm\|security type"; then
         log_warning "The DataSync agent image is Hyper-V Generation 1 (Gen1). The chosen VM size ('$vm_size') looks Gen2-only or confidential-compute only, which cannot boot a Gen1 disk."
-        log_warning "Choose a Gen1-capable size (e.g. an Esv3/Esv4/Esv5 family size such as Standard_E4s_v5) via -z."
+        log_warning "Choose a Gen1-capable size (e.g. an Esv3/Esv4/Esv5 family size such as $suggested_size) via -z."
     fi
 
     if echo "$err" | grep -qi "SkuNotAvailable\|Capacity Restrictions\|not available in location\|not available in zone"; then
         log_warning "VM size '$vm_size' is unavailable (capacity/quota) in location '$location'."
-        log_warning "Try another region via -l, or find Gen1-capable, unrestricted sizes for your subscription with:"
+        log_warning "Try another region via -l, or find Gen1-capable, unrestricted ${required_vcpus}-vCPU sizes for your subscription with:"
         echo -e "${YELLOW}  az vm list-skus --location <region> --resource-type virtualMachines --all \\
-    --query \"[?length(restrictions)==\\\`0\\\` && capabilities[?name=='HyperVGenerations' && contains(value,'V1')] && capabilities[?name=='vCPUs' && value=='4']].name\" -o tsv${RESET}"
+    --query \"[?length(restrictions)==\\\`0\\\` && capabilities[?name=='HyperVGenerations' && contains(value,'V1')] && capabilities[?name=='vCPUs' && value=='${required_vcpus}']].name\" -o tsv${RESET}"
         log_warning "Note: the uploaded disk is in '$location'; deploying to another region requires re-running this script with a new -l (the disk is re-uploaded)."
     fi
 
@@ -324,8 +378,9 @@ if [ "$#" -eq 0 ]; then
 fi
 
 # Parse command-line arguments
-while getopts ":d:l:r:v:g:n:s:z:u:t:h" opt; do
+while getopts ":a:d:l:r:v:g:n:s:z:u:t:h" opt; do
     case $opt in
+        a) agent_type="$OPTARG" ;;
         d) deployment_type="$OPTARG" ;;
         l) location="$OPTARG" ;;
         r) resource_group="$OPTARG" ;;
